@@ -1,13 +1,12 @@
-#Hybrid System
+#Algorithm Testing
 
 import numpy as np
 import cv2
 import glob
 
-from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, classification_report
 import matplotlib.pyplot as plt
 from tabulate import tabulate
 import os
@@ -81,78 +80,62 @@ def ml_technique_three(train_features, train_labels):
 
 
 # Performance evaluation with additional metrics
-def evaluate_performance(knn_classifier, svm_classifier, rf_classifier, test_features, test_labels):
-    frr = 0
-    far = 0
+def evaluate_performance(classifier, test_features, test_labels):
+    max_frr = 0  # Placeholder for maximum False Rejection Rate
+    min_frr = 1  # Placeholder for minimum False Rejection Rate
+    max_far = 0  # Placeholder for maximum False Acceptance Rate
+    min_far = 1  # Placeholder for minimum False Acceptance Rate
+    avg_frr = 0
+    avg_far = 0
+    eer = 1
 
-    r = random.sample(range(500), 100)  # choose a random set of indices to test
-    random_test_features = []
-    random_test_labels = []
-    for i in r:
-        random_test_features.append(test_features[i])
-        random_test_labels.append(test_labels[i])
+    predictions = classifier.predict(test_features)
+    accuracy = accuracy_score(test_labels, predictions)
+    report = classification_report(test_labels, predictions, zero_division=0)
+    # base final prediction off of a threshold - test a variety of thresholds
+    for i in range(1, 99):
+        predictions = (classifier.predict_proba(test_features)[:, 1] >= (i / 100)).astype(int)
 
-    # KNN is most accurate, gets weight of 4. SVM is least accurate, gets weight of 2.
-    knn_predictions = knn_classifier.predict_proba(random_test_features)[:, 1]
-    knn_predictions = [x * 4 for x in knn_predictions]
-    svm_predictions = svm_classifier.predict_proba(random_test_features)[:, 1]
-    svm_predictions = [x * 2 for x in svm_predictions]
-    # RF is similarly accurate to KNN, also gets weight of 4.
-    rf_predictions = rf_classifier.predict_proba(random_test_features)[:, 1]
-    rf_predictions = [x * 4 for x in rf_predictions]
-    predictions = np.add(knn_predictions, svm_predictions)
-    predictions = np.add(predictions, rf_predictions)
-    predictions = ((predictions[:] / 10) >= .27).astype(int)
-    accuracy = accuracy_score(random_test_labels, predictions)
-    report = classification_report(random_test_labels, predictions, zero_division=0)
+        # Additional Metrics
+        sum_frr = 0  # Sum of False Rejects
+        sum_far = 0  # Sum of False Accepts
+        true_rejects = 0  # total number of true rejects in the tested data
+        true_accepts = 0  # total number of true accepts in the tested data
 
-    # Additional Metrics
-    sum_frr = 0  # Sum of False Rejects
-    sum_far = 0  # Sum of False Accepts
-    true_rejects = 0  # total number of true rejects in the tested data
-    true_accepts = 0  # total number of true accepts in the tested data
+        for j in range(len(test_labels)):
+            if (test_labels[j] == 1):  # Count all true accepts
+                true_accepts += 1
+            else:  # Count all true rejects
+                true_rejects += 1
+            if test_labels[j] == 1 and predictions[j] == 0:  # False Rejection
+                sum_frr += 1
+            if test_labels[j] == 0 and predictions[j] == 1:  # False Acceptance
+                sum_far += 1
 
-    for j in range(len(random_test_labels)):
-        if (random_test_labels[j] == 1):  # Count all true accepts
-            true_accepts += 1
-        else:  # Count all true rejects
-            true_rejects += 1
-        if random_test_labels[j] == 1 and predictions[j] == 0:  # False Rejection
-            sum_frr += 1
-        if random_test_labels[j] == 0 and predictions[j] == 1:  # False Acceptance
-            sum_far += 1
+        sub_avg_frr = sum_frr / true_accepts
+        sub_avg_far = sum_far / true_rejects
+        if sub_avg_frr > max_frr:
+            max_frr = sub_avg_frr
+        if sub_avg_frr < min_frr:
+            min_frr = sub_avg_frr
+        if sub_avg_far > max_far:
+            max_far = sub_avg_far
+        if sub_avg_far < min_far:
+            min_far = sub_avg_far
 
-    frr = sum_frr / true_accepts
-    far = sum_far / true_rejects
+        if (sub_avg_frr - .07) <= sub_avg_far and sub_avg_far <= (sub_avg_frr + .07):
+            if (sub_avg_frr + sub_avg_far) / 2 < eer:
+                eer = (sub_avg_frr + sub_avg_far) / 2  # Equal Error Rate
+                accuracy = accuracy_score(test_labels, predictions)
+                report = classification_report(test_labels, predictions, zero_division=0)
 
-    return accuracy, report, frr, far
+        avg_frr += sub_avg_frr
+        avg_far += sub_avg_far
 
+    avg_frr = avg_frr / 99
+    avg_far = avg_far / 99
 
-def compare_fingerprints(knn_classifier, svm_classifier, rf_classifier, path_a, path_b, similarity_threshold=0.27,
-                         debug=False, ):
-    # Detect minutiae points
-    minutiae_a = find_minutiae(path_a, debug)
-    minutiae_b = find_minutiae(path_b, debug)
-
-    # Extract features
-    features_a = extract_features(minutiae_a)
-    features_b = extract_features(minutiae_b)
-
-    combined_features = np.concatenate((features_a, features_b))
-    # Calculate similarity
-    knn_predictions = knn_classifier.predict_proba(combined_features)[:, 1]
-    knn_predictions = [x * 4 for x in knn_predictions]
-    svm_predictions = svm_classifier.predict_proba(combined_features)[:, 1]
-    svm_predictions = [x * 2 for x in svm_predictions]
-    # RF is similarly accurate to KNN, also gets weight of 4.
-    rf_predictions = rf_classifier.predict_proba(combined_features)[:, 1]
-    rf_predictions = [x * 4 for x in rf_predictions]
-    predictions = np.add(knn_predictions, svm_predictions)
-    predictions = np.add(predictions, rf_predictions)
-    similarity = ((predictions[:] / 10) >= similarity_threshold).astype(int)
-
-    # Determine if the fingerprints are similar or not
-    return True if similarity[0] == 1 else False
+    return accuracy, report, max_frr, min_frr, avg_frr, max_far, min_far, avg_far, eer
 
 
 def main():
@@ -281,21 +264,42 @@ def main():
     svm_classifier = ml_technique_two(train_features, train_labels)
     rf_classifier = ml_technique_three(train_features, train_labels)
 
-    hybrid_accuracy, hybrid_report, frr, far = evaluate_performance(
-        knn_classifier, svm_classifier, rf_classifier, test_features, test_labels)
+    knn_accuracy, knn_report, max_frr_knn, min_frr_knn, avg_frr_knn, max_far_knn, min_far_knn, avg_far_knn, eer_knn = evaluate_performance(
+        knn_classifier, test_features, test_labels)
+    svm_accuracy, svm_report, max_frr_svm, min_frr_svm, avg_frr_svm, max_far_svm, min_far_svm, avg_far_svm, eer_svm = evaluate_performance(
+        svm_classifier, test_features, test_labels)
+    rf_accuracy, rf_report, max_frr_rf, min_frr_rf, avg_frr_rf, max_far_rf, min_far_rf, avg_far_rf, eer_rf = evaluate_performance(
+        rf_classifier, test_features, test_labels)
 
+    # Print KNN and SVM results
     # Print results
-    print("Hybrid Accuracy: ", hybrid_accuracy)
-    print("Hybrid Report:\n", hybrid_report)
-    print(f"Hybrid FRR: {frr:.4f}")
-    print(f"Hybrid FAR: {far:.4f}")
+    print("KNN Accuracy: ", knn_accuracy)
+    print("KNN Report:\n", knn_report)
+    print(f"KNN Max FRR: {max_frr_knn:.4f}, Min FRR: {min_frr_knn:.4f}, Avg FRR: {avg_frr_knn:.4f}")
+    print(f"KNN Max FAR: {max_far_knn:.4f}, Min FAR: {min_far_knn:.4f}, Avg FAR: {avg_far_knn:.4f}")
+    print(f"KNN Equal Error Rate (EER): {eer_knn:.4f}")
+    print("\n")
+
+    print("SVM Accuracy: ", svm_accuracy)
+    print("SVM Report:\n", svm_report)
+    print(f"SVM Max FRR: {max_frr_svm:.4f}, Min FRR: {min_frr_svm:.4f}, Avg FRR: {avg_frr_svm:.4f}")
+    print(f"SVM Max FAR: {max_far_svm:.4f}, Min FAR: {min_frr_svm:.4f}, Avg FAR: {avg_far_svm:.4f}")
+    print(f"SVM Equal Error Rate (EER): {eer_svm:.4f}")
+    print("\n")
+
+    print("Random Forest  Report:\n", rf_report)
+    print(f"Random Forest  Max FRR: {max_frr_rf:.4f}, Min FRR: {min_frr_rf:.4f}, Avg FRR: {avg_frr_rf:.4f}")
+    print(f"Random Forest  Max FAR: {max_far_rf:.4f}, Min FAR: {min_frr_rf:.4f}, Avg FAR: {avg_far_rf:.4f}")
+    print(f"Random Forest  Equal Error Rate (EER): {eer_rf:.4f}")
     print("\n")
 
     # Create and display the summary table
     summary_table = [
-        ["hybrid", hybrid_accuracy, frr, far]
+        ["KNN", knn_accuracy, max_frr_knn, min_frr_knn, avg_frr_knn, max_far_knn, min_far_knn, avg_far_knn, eer_knn],
+        ["SVM", svm_accuracy, max_frr_svm, min_frr_svm, avg_frr_svm, max_far_svm, min_far_svm, avg_far_svm, eer_svm],
+        ["Random Forest", rf_accuracy, max_frr_rf, min_frr_rf, avg_frr_rf, max_far_rf, min_far_rf, avg_far_rf, eer_rf]
     ]
-    headers = ["Method", "Accuracy", "FRR", "FAR"]
+    headers = ["Method", "Accuracy", "Max FRR", "Min FRR", "Avg FRR", "Max FAR", "Min FAR", "Avg FAR", "EER"]
     print(tabulate(summary_table, headers, tablefmt="grid"))
 
 
