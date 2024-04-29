@@ -150,7 +150,7 @@ def evaluate_performance(knn_classifier, svm_classifier, rf_classifier, test_fea
 
 
 def main():
-    image_dir = 'NISTSpecialDatabase4GrayScaleImagesofFIGS/sd04/png_txt/full-data'
+    image_dir = 'sd04/png_txt/full-data'
     reference_image_paths = glob.glob(f'{image_dir}/f*.png')
     subject_image_paths = {os.path.basename(p).split('_')[0][1:]: p for p in glob.glob(f'{image_dir}/s*.png')}
     reference_image_paths.sort()
